@@ -4,11 +4,11 @@ from fpdf import FPDF
 from datetime import datetime
 import os
 
-# Configuração Base
-st.set_page_config(page_title="ALT Contracting - Invoice System", layout="wide")
+# Configuração da página
+st.set_page_config(page_title="ALT Contracting System", layout="wide")
 
-# --- DADOS FIXOS DA EMPRESA ---
-COMPANY_DATA = {
+# --- DADOS FIXOS ---
+COMPANY = {
     "name": "ALT CONTRACTING",
     "web": "www.alt-contracting.ca",
     "phone": "647 865 8176 - Toronto ON",
@@ -17,93 +17,107 @@ COMPANY_DATA = {
     "user": "Evaldo A. Althoff"
 }
 
-st.title(f"📄 {COMPANY_DATA['name']} - Invoice System")
+st.title(f"📄 {COMPANY['name']} - Invoice System")
 
-# --- LÓGICA DO SERIAL NUMBER (Ano/Mês - Sequencial) ---
-current_year_month = datetime.now().strftime("%Y/%m")
-serial_suffix = st.text_input("Número Sequencial", "001")
-invoice_number = f"{current_year_month}-{serial_suffix}"
+# --- SERIAL E CLIENTE ---
+current_ym = datetime.now().strftime("%Y/%m")
+col_s1, col_s2 = st.columns([1, 3])
+with col_s1:
+    serial_num = st.text_input("Serial Sequence", "001")
+    invoice_no = f"{current_ym}-{serial_num}"
+with col_s2:
+    st.write(f"**Invoice Number:** {invoice_no}")
 
-# --- CAMPOS DO CLIENTE ---
 col1, col2 = st.columns(2)
 with col1:
     client_name = st.text_input("Client Name")
-    client_addr = st.text_area("Client Address (Endereço do Cliente)")
+    client_addr = st.text_area("Client Address")
 with col2:
-    invoice_date = st.date_input("Date of Issue", datetime.now())
+    invoice_date = st.date_input("Issue Date", datetime.now())
 
-# Campo Destacado: Endereço do Trabalho
-st.markdown("""
-    <div style="background-color: #f0f2f6; padding: 10px; border-radius: 5px;">
-        <strong>WORK ADDRESS (Endereço do Trabalho)</strong>
-    </div>
-    """, unsafe_allow_html=True)
-work_address = st.text_input("", placeholder="Digite o endereço onde o serviço foi prestado...")
+# --- SEÇÃO JOBSITE ---
+st.markdown("### **JOBSITE**")
+jobsite_addr = st.text_input("Enter the jobsite address below:", key="jobsite")
 
-# --- TABELA DE SERVIÇOS (APENAS INGLÊS) ---
-st.subheader("Services")
-if 'rows' not in st.session_state:
-    st.session_state.rows = [{"Description": "", "Price ($CAD)": 0.0, "SQFT": 0, "Time (Hours)": 0}]
-
-df_input = pd.DataFrame(st.session_state.rows)
-edited_df = st.data_editor(df_input, num_rows="dynamic", use_container_width=True)
-
-# Cálculo da Tabela: Preço x (SQFT ou Horas)
-# Nota: Aqui o sistema multiplica pelo que for maior que zero para gerar o subtotal por linha
-def calculate_row_total(row):
-    if row['SQFT'] > 0:
-        return row['Price ($CAD)'] * row['SQFT']
-    return row['Price ($CAD)'] * row['Time (Hours)']
-
-edited_df['Subtotal'] = edited_df.apply(calculate_row_total, axis=1)
-
-# --- TOTAIS E IMPOSTOS ---
-subtotal_geral = edited_df['Subtotal'].sum()
-hst_tax = subtotal_geral * 0.13
-total_final = subtotal_geral + hst_tax
-
-c_a, c_b = st.columns([2,1])
-with c_b:
-    st.write(f"**Subtotal:** ${subtotal_geral:,.2f}")
-    st.write(f"**HST (13%):** ${hst_tax:,.2f}")
-    st.write(f"### TOTAL DUE: ${total_final:,.2f}")
-    st.caption(COMPANY_DATA['tax_id'])
-
-# --- INSTRUÇÕES FINAIS ---
-st.subheader("Instructions & Warranty")
-instructions = st.text_area("Final orientations, comments, work warranty (Max 5 lines)", height=100)
-
-# --- RODAPÉ DE ASSINATURA ---
 st.markdown("---")
-st.write(f"✍️ __________________________________")
-st.write(f"**{COMPANY_DATA['user']}**")
-st.write(COMPANY_DATA['email'])
 
-# --- HISTÓRICO E RELATÓRIOS ---
-st.sidebar.header("Management / Gestão")
-if st.sidebar.checkbox("Show History & Annual Report"):
-    st.header("Annual Report / Relatório Anual")
-    
-    # Simulação de base de dados (CSV)
-    if os.path.exists("history.csv"):
-        hist_df = pd.read_csv("history.csv")
-        
-        # Filtro de Status com cores usando dataframe style
-        def color_status(val):
-            color = 'green' if val == 'Paid' else 'red'
-            return f'color: {color}'
-        
-        st.dataframe(hist_df.style.applymap(color_status, subset=['Status']))
-        
-        # Botão para baixar relatório anual
-        st.download_button("Download Annual Report (CSV)", hist_df.to_csv(), "report.csv")
+# --- TABELA DE SERVIÇOS ---
+st.subheader("Services")
+
+# Inicialização da tabela se não existir
+if 'data' not in st.session_state:
+    st.session_state.data = pd.DataFrame([
+        {"Description": "", "Price": 0.00, "SQFT": 0, "Time (h)": 0}
+    ])
+
+# Editor da Tabela
+edited_df = st.data_editor(
+    st.session_state.data, 
+    num_rows="dynamic", 
+    use_container_width=True,
+    column_config={
+        "Description": st.column_config.TextColumn("Description", width="large"),
+        "Price": st.column_config.NumberColumn("Price ($)", format="%.2f"),
+        "SQFT": st.column_config.NumberColumn("SQFT", min_value=0, max_value=60000),
+        "Time (h)": st.column_config.NumberColumn("Time (h)", min_value=0, max_value=999),
+    }
+)
+
+# --- LÓGICA DE CÁLCULO POR LINHA ---
+def calculate_subtotal(row):
+    # Se tiver SQFT, prioriza Preço x SQFT. Se não, faz Preço x Time.
+    if row['SQFT'] > 0:
+        return row['Price'] * row['SQFT']
     else:
-        st.info("No records found yet.")
+        return row['Price'] * row['Time (h)']
 
-# Botão para Salvar no Histórico (Teste de Lógica)
-if st.button("Save Invoice Data"):
-    status_options = ["Paid", "Unpaid", "Overdue"]
-    new_entry = pd.DataFrame([[invoice_number, invoice_date, client_name, total_final, "Unpaid"]], 
-                             columns=["Invoice #", "Date", "Client", "Total", "Status"])
-    new_entry.to_csv("history.csv", mode='a', header=not os.path.exists("history.csv"), index=False)
-    st.success("Data saved to history!")
+# Aplica o cálculo e cria a 5ª coluna que você pediu
+edited_df['Line Subtotal'] = edited_df.apply(calculate_subtotal, axis=1)
+
+# Mostrar a tabela com o Subtotal para conferência
+st.dataframe(edited_df, use_container_width=True)
+
+# --- CÁLCULOS FINAIS ---
+subtotal_total = edited_df['Line Subtotal'].sum()
+hst_value = subtotal_total * 0.13
+grand_total = subtotal_total + hst_value
+
+col_a, col_b = st.columns([2,1])
+with col_b:
+    st.markdown(f"**Subtotal:** ${subtotal_total:,.2f}")
+    st.markdown(f"**HST (13%):** ${hst_value:,.2f}")
+    st.markdown(f"## **TOTAL DUE: ${grand_total:,.2f}**")
+    st.caption(COMPANY['tax_id'])
+
+# --- INSTRUÇÕES ---
+st.subheader("Instructions & Warranty")
+notes = st.text_area("Final orientations, comments, warranty (Max 5 lines)", height=120)
+
+# --- ASSINATURA ---
+st.markdown("---")
+st.write("✍️ __________________________________")
+st.write(f"**{COMPANY['user']}**")
+st.write(COMPANY['email'])
+
+# --- SALVAR NO HISTÓRICO ---
+if st.button("Save to History"):
+    history_file = "history.csv"
+    new_record = pd.DataFrame([{
+        "Invoice #": invoice_no,
+        "Date": invoice_date,
+        "Client": client_name,
+        "Total": f"{grand_total:.2f}",
+        "Status": "Unpaid",
+        "Sent via": "Pending"
+    }])
+    new_record.to_csv(history_file, mode='a', header=not os.path.exists(history_file), index=False)
+    st.success("Invoice saved successfully!")
+
+# --- VISUALIZAR RELATÓRIO ---
+if st.sidebar.checkbox("View Management Report"):
+    st.header("Annual & Period Report")
+    if os.path.exists("history.csv"):
+        h_df = pd.read_csv("history.csv")
+        st.table(h_df)
+    else:
+        st.info("No records found.")

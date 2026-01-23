@@ -22,7 +22,7 @@ def create_pdf(invoice_no, date, client_n, client_a, job_a, items, sub, hst, tot
     pdf = FPDF(orientation='P', unit='mm', format='Letter')
     pdf.add_page()
     
-    # Header
+    # Cabeçalho com Logo
     if os.path.exists("Alt Contracting Logo.png"):
         pdf.image("Alt Contracting Logo.png", 10, 8, 45)
     
@@ -33,14 +33,14 @@ def create_pdf(invoice_no, date, client_n, client_a, job_a, items, sub, hst, tot
     pdf.cell(190, 5, COMPANY['tax_id'], ln=True, align='R')
     pdf.ln(15)
     
-    # Info
+    # Informações do Cliente e Invoice
     pdf.set_font("Arial", 'B', 12)
     pdf.cell(95, 10, "BILL TO:", ln=False)
     pdf.cell(95, 10, f"INVOICE #: {invoice_no}", ln=True, align='R')
     pdf.set_font("Arial", '', 11)
-    pdf.cell(95, 5, client_n, ln=False)
+    pdf.cell(95, 5, str(client_n), ln=False)
     pdf.cell(95, 5, f"Date: {date}", ln=True, align='R')
-    pdf.multi_cell(95, 5, client_a)
+    pdf.multi_cell(95, 5, str(client_a))
     pdf.ln(5)
     
     # Jobsite
@@ -49,7 +49,7 @@ def create_pdf(invoice_no, date, client_n, client_a, job_a, items, sub, hst, tot
     pdf.cell(190, 8, f" JOBSITE: {job_a}", ln=True, fill=True)
     pdf.ln(5)
     
-    # Table Header
+    # Cabeçalho da Tabela
     pdf.set_fill_color(200, 200, 200)
     pdf.cell(75, 8, "Description", 1, 0, 'C', True)
     pdf.cell(25, 8, "Price ($)", 1, 0, 'C', True)
@@ -57,7 +57,7 @@ def create_pdf(invoice_no, date, client_n, client_a, job_a, items, sub, hst, tot
     pdf.cell(30, 8, "Time (h)", 1, 0, 'C', True)
     pdf.cell(30, 8, "Subtotal", 1, 1, 'C', True)
     
-    # Table Body
+    # Linhas da Tabela
     pdf.set_font("Arial", '', 10)
     for _, row in items.iterrows():
         pdf.cell(75, 7, str(row['Description']), 1)
@@ -66,7 +66,7 @@ def create_pdf(invoice_no, date, client_n, client_a, job_a, items, sub, hst, tot
         pdf.cell(30, 7, str(row['Time']), 1, 0, 'C')
         pdf.cell(30, 7, f"{float(row['Subtotal']):.2f}", 1, 1, 'C')
     
-    # Totals
+    # Totais
     pdf.ln(5)
     pdf.set_font("Arial", 'B', 11)
     pdf.cell(160, 7, "Subtotal:", 0, 0, 'R')
@@ -77,20 +77,25 @@ def create_pdf(invoice_no, date, client_n, client_a, job_a, items, sub, hst, tot
     pdf.cell(160, 10, "TOTAL DUE:", 0, 0, 'R')
     pdf.cell(30, 10, f"${total:,.2f}", 1, 1, 'C')
     
+    # Instruções e Garantia
     pdf.ln(10)
+    pdf.set_font("Arial", 'B', 10)
+    pdf.cell(190, 5, "Instructions & Warranty:", ln=True)
     pdf.set_font("Arial", 'I', 10)
-    pdf.multi_cell(190, 5, f"Instructions & Warranty:\n{notes}")
+    pdf.multi_cell(190, 5, str(notes))
     
-    pdf.ln(10)
+    # ASSINATURA (Restaurada para o PDF)
+    pdf.ln(20)
     pdf.set_font("Arial", 'B', 11)
     pdf.cell(190, 5, "___________________________________________", ln=True)
     pdf.cell(190, 5, COMPANY['user'], ln=True)
     pdf.set_font("Arial", '', 10)
     pdf.cell(190, 5, COMPANY['email'], ln=True)
     
-    return pdf.output(dest='S').encode('latin-1')
+    # Retorna os bytes diretamente (correção do erro 'bytearray')
+    return pdf.output()
 
-# --- UI STREAMLIT ---
+# --- INTERFACE NO BROWSER ---
 col_l, col_r = st.columns([1, 2])
 with col_l:
     if os.path.exists("Alt Contracting Logo.png"):
@@ -102,7 +107,6 @@ with col_r:
 
 st.markdown("---")
 
-# Sequence & Client
 current_ym = datetime.now().strftime("%Y/%m")
 col_s1, col_s2 = st.columns([1, 2])
 with col_s1:
@@ -117,37 +121,34 @@ with col_c2:
     invoice_date = st.date_input("Issue Date", datetime.now())
     jobsite_addr = st.text_input("Jobsite:")
 
-# TABELA DE ENTRADA (EDITOR)
 st.subheader("Services / Descrição")
 if 'items_data' not in st.session_state:
     st.session_state.items_data = pd.DataFrame([{"Description": "", "Price": 0.00, "SQFT": 0, "Time": 0}])
 
-# Usamos um container para evitar conflitos de atualização
+# Editor
 edited_df = st.data_editor(st.session_state.items_data, num_rows="dynamic", use_container_width=True, key="my_editor")
 
-# Cálculo do Subtotal em um novo DataFrame para não mexer no original do editor
+# Cálculos
 final_df = edited_df.copy()
 def calc_sub(row):
-    p = float(row['Price'] or 0)
-    s = float(row['SQFT'] or 0)
-    t = float(row['Time'] or 0)
+    p, s, t = float(row['Price'] or 0), float(row['SQFT'] or 0), float(row['Time'] or 0)
     return p * s if s > 0 else p * t
 
 final_df['Subtotal'] = final_df.apply(calc_sub, axis=1)
 
-# RESUMO FINAL (O QUE APARECE PARA O CLIENTE)
+# Preview
 st.markdown("### Preview for Client")
 st.dataframe(final_df, use_container_width=True, hide_index=True)
 
-# Totais
+# Totais na tela
 sub_val = final_df['Subtotal'].sum()
 hst_val = sub_val * 0.13
 total_val = sub_val + hst_val
 
 col_t1, col_t2 = st.columns([2, 1])
 with col_t2:
-    st.write(f"Subtotal: ${sub_val:,.2f}")
-    st.write(f"HST (13%): ${hst_val:,.2f}")
+    st.write(f"**Subtotal:** ${sub_val:,.2f}")
+    st.write(f"**HST (13%):** ${hst_val:,.2f}")
     st.subheader(f"Total Due: ${total_val:,.2f}")
 
 instructions = st.text_area("Instructions & Warranty:")
@@ -155,8 +156,15 @@ instructions = st.text_area("Instructions & Warranty:")
 # BOTÃO PDF
 if st.button("Generate Official PDF"):
     try:
+        # Chamada da função sem o .encode('latin-1') que causava o erro
         pdf_bytes = create_pdf(invoice_no, str(invoice_date), client_name, client_addr, jobsite_addr, final_df, sub_val, hst_val, total_val, instructions)
-        st.download_button(label="⬇️ Download Invoice PDF", data=pdf_bytes, file_name=f"Invoice_{invoice_no}.pdf", mime="application/pdf")
-        st.success("PDF pronto para download!")
+        
+        st.download_button(
+            label="⬇️ Download Invoice PDF", 
+            data=bytes(pdf_bytes), 
+            file_name=f"Invoice_{invoice_no}.pdf", 
+            mime="application/pdf"
+        )
+        st.success("PDF gerado com sucesso!")
     except Exception as e:
         st.error(f"Erro ao gerar PDF: {e}")
